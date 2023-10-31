@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "ring_buffer.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,7 +44,10 @@
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+uint8_t rx_buffer[16];
+ring_buffer_t ring_buffer_uart_rx;//estructura qeu va a tener las variales de control
 
+uint8_t rx_data;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -56,6 +60,18 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int _write(int file, char *ptr, int len)
+{
+  HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, HAL_MAX_DELAY);
+  return len;
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	//rx_data = 50;
+	ring_buffer_put(&ring_buffer_uart_rx, rx_data); //manejo de indices y demas cosas
+	HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+}
 
 /* USER CODE END 0 */
 
@@ -63,6 +79,7 @@ static void MX_USART2_UART_Init(void);
   * @brief  The application entry point.
   * @retval int
   */
+
 int main(void)
 {
   /* USER CODE BEGIN 1 */
@@ -89,13 +106,34 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  ring_buffer_init(&ring_buffer_uart_rx, rx_buffer, 16); // funcion de inicialiczacion
 
+  HAL_UART_Receive_IT(&huart2, &rx_data, 1);// cada que llegue un dato lo agragamos a un buffer circular
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
+	  uint16_t size = ring_buffer_size(&ring_buffer_uart_rx);
+
+	  if(size != 0)
+	  {
+		  uint8_t rx_message[size + 1];
+		  for (uint16_t idx =0; idx<size; idx++)
+		  {
+			  //
+			  ring_buffer_get(&ring_buffer_uart_rx, &rx_message[idx]);
+		  }
+		  rx_message[size] = 0;
+		  printf("Rec: %s\r\n", rx_message);
+	  }
+	  //while(ring_buffer_get(&ring_buffer_uart_rx, &data) != 0) // imprimir los datos
+	  //{
+	  //	  printf("Rec: %c\r\n", data);
+	  //}
+	  HAL_Delay(1000);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

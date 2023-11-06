@@ -22,9 +22,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "ring_buffer.h"
+#include "keyboard.h"
 #include <stdio.h>
-#include "ssd1306.h"
-#include "ssd1306_fonts.h"
+//#include "ssd1306.h"
+//#include "ssd1306_fonts.h"
 
 /* USER CODE END Includes */
 
@@ -54,7 +55,8 @@ ring_buffer_t ring_buffer_uart_rx;//estructura qeu va a tener las variales de co
 
 uint8_t rx_data;
 
-uint16_t key_event = 0xFF1;
+uint16_t key_event = 0xFF;
+uint16_t key_pressed = 0xFF;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -76,7 +78,6 @@ int _write(int file, char *ptr, int len)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	//rx_data = 50;
 	ring_buffer_put(&ring_buffer_uart_rx, rx_data); //manejo de indices y demas cosas
 	HAL_UART_Receive_IT(&huart2, &rx_data, 1);
 }
@@ -88,68 +89,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 	key_event = GPIO_Pin ;
-}
-
-uint8_t keypad_handler(void){
-
-	static uint32_t last_pressed_tick = 0;
-
-	uint8_t key_pressed = 0xFF;
-
-		if ((key_event == 0xFF) || ((last_pressed_tick + 100) >= HAL_GetTick())){
-			return key_pressed;
-		}
-
-		last_pressed_tick = HAL_GetTick();
-
-
-		switch (key_event){ //with the switch, depending on the port that is being pressed, it compares the state to find the row
-		case COLUMN_1_Pin:
-
-			 ROW_1_GPIO_Port -> BSRR = ROW_1_Pin; //BSSR (bit set reset register) set the value of the rows (outputs) in high.
-			 ROW_2_GPIO_Port -> BRR = ROW_2_Pin; //BRR (bit reset register)Set the value of the row (outputs) in low
-			 ROW_3_GPIO_Port -> BRR = ROW_3_Pin; // BRR and BSRR are known as atomic register
-			 ROW_4_GPIO_Port -> BRR = ROW_4_Pin;
-
-			 if (COLUMN_1_GPIO_Port -> IDR & COLUMN_1_Pin) key_pressed = 0x01;
-
-			 ROW_1_GPIO_Port -> BRR = ROW_1_Pin;
-			 ROW_2_GPIO_Port -> BSRR = ROW_2_Pin;
-
-			 if (COLUMN_1_GPIO_Port -> IDR & COLUMN_1_Pin) key_pressed = 0x04;
-
-			 ROW_2_GPIO_Port -> BRR = ROW_2_Pin;
-			 ROW_3_GPIO_Port -> BSRR = ROW_3_Pin;
-
-			 if (COLUMN_1_GPIO_Port -> IDR & COLUMN_1_Pin) key_pressed = 0x07;
-
-			 ROW_3_GPIO_Port -> BRR = ROW_3_Pin;
-			 ROW_4_GPIO_Port -> BSRR = ROW_4_Pin;
-
-			 if (COLUMN_1_GPIO_Port -> IDR & COLUMN_1_Pin) key_pressed = 0x0E; //
-			break;
-
-		default:
-			break;
-		}
-
-		  ROW_1_GPIO_Port -> BSRR = ROW_1_Pin; //set the value of the rows (outputs) in high.
-		  ROW_2_GPIO_Port -> BSRR = ROW_2_Pin;
-		  ROW_3_GPIO_Port -> BSRR = ROW_3_Pin;
-		  ROW_4_GPIO_Port -> BSRR = ROW_4_Pin;
-		printf("Key pressed: %x\r\n", key_pressed);
-		key_event = 0xFF;
-		return key_pressed;
-
 
 }
 
-/* USER CODE END 0 */
-
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
 int main(void)
 {
   /* USER CODE BEGIN 1 */
@@ -184,37 +126,18 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  ROW_1_GPIO_Port->BSRR = ROW_1_Pin;
-  ROW_2_GPIO_Port->BSRR = ROW_2_Pin;
-  ROW_3_GPIO_Port->BSRR = ROW_3_Pin;
-  ROW_4_GPIO_Port->BSRR = ROW_4_Pin;
 
+  keyboard_init(); // Initialize the keypad functionality
 
-  ssd1306_Init();
-  ssd1306_Fill(Black);
-  ssd1306_WriteString("hello MALPARIDITOS \r mama ",Font_6x8,0*11);
-  ssd1306_UpdateScreen();
   while (1)
   {
-
-
-	  uint16_t size = ring_buffer_size(&ring_buffer_uart_rx);
-	  if(size != 0)
+	  if (key_event != 0xFF)// check if there is a event from the EXTi callback
 	  {
-		  uint8_t rx_message[size + 1];
-		  for (uint16_t idx =0; idx<size; idx++)
-		  {
-			  //
-			  ring_buffer_get(&ring_buffer_uart_rx, &rx_message[idx]);
-		  }
-		  rx_message[size] = 0;
-		  printf("Rec: %s\r\n", rx_message);
+		  uint16_t key_pressed = keyboard_handler(key_event); // call the keypad handler
+		  printf("Key pressed: %x\r\n", key_pressed); // print the key pressed
+		  key_event = 0xFF; // clean the event
+		  keyboard_init();
 	  }
-	  //while(ring_buffer_get(&ring_buffer_uart_rx, &data) != 0) // imprimir los datos
-	  //{
-	  //	  printf("Rec: %c\r\n", data);
-	  //}
-	  keypad_handler();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -335,7 +258,7 @@ static void MX_USART2_UART_Init(void)
 
   /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
+  huart2.Init.BaudRate = 9600;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
   huart2.Init.StopBits = UART_STOPBITS_1;
   huart2.Init.Parity = UART_PARITY_NONE;
@@ -375,7 +298,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOA, LD2_Pin|ROW_1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, ROW_2_Pin|ROW_3_Pin|ROW_4_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, ROW_2_Pin|ROW_4_Pin|ROW_3_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -408,8 +331,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : ROW_2_Pin ROW_3_Pin ROW_4_Pin */
-  GPIO_InitStruct.Pin = ROW_2_Pin|ROW_3_Pin|ROW_4_Pin;
+  /*Configure GPIO pins : ROW_2_Pin ROW_4_Pin ROW_3_Pin */
+  GPIO_InitStruct.Pin = ROW_2_Pin|ROW_4_Pin|ROW_3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

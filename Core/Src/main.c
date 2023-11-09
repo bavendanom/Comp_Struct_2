@@ -24,8 +24,9 @@
 #include "ring_buffer.h"
 #include "keyboard.h"
 #include <stdio.h>
-//#include "ssd1306.h"
-//#include "ssd1306_fonts.h"
+#include <string.h> // Para memset
+#include "ssd1306.h"
+#include "ssd1306_fonts.h"
 
 /* USER CODE END Includes */
 
@@ -50,13 +51,14 @@ I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-uint8_t rx_buffer[16];
-ring_buffer_t ring_buffer_uart_rx;//estructura qeu va a tener las variales de control
-
+uint8_t rx_buffer[5];
+ring_buffer_t ring_buffer_keyboard; //structure that the control variables will have
 uint8_t rx_data;
 
-uint16_t key_event = 0xFF;
+uint16_t key_event = 0xFF; // initializing the columns
 uint16_t key_pressed = 0xFF;
+
+int m=30;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -78,8 +80,8 @@ int _write(int file, char *ptr, int len)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-	ring_buffer_put(&ring_buffer_uart_rx, rx_data); //manejo de indices y demas cosas
-	HAL_UART_Receive_IT(&huart2, &rx_data, 1);
+	ring_buffer_put(&ring_buffer_keyboard, rx_data); //manejo de indices y demas cosas
+	HAL_UART_Receive_IT(&huart2, &rx_data, 5);
 }
 /**
   * @brief  EXTI line detection callback.
@@ -91,6 +93,37 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	key_event = GPIO_Pin ;
 
 }
+/*
+ * @brief Resetting values ​​and buffer, ready for a new event
+ * @retval None
+ */
+void reset_all(void)
+{
+	ring_buffer_reset(&ring_buffer_keyboard);
+	memset(rx_buffer, 0, sizeof(rx_buffer)); // Resetting rx_buffer to 0 using memset
+	rx_data = 0;
+	key_event = 0xFF;
+	key_pressed = 0xFf;
+}
+/*
+ * @brief Starting screen
+ * @retval None
+ */
+void display_init(void)
+{
+	ssd1306_Init();
+	ssd1306_Fill(Black); // Color screen
+	ssd1306_SetCursor(20, 0);
+	ssd1306_WriteString("Welcome", Font_7x10, White); // Text, size, color text
+	ssd1306_SetCursor(0, 10);
+	ssd1306_WriteString("Enter your password", Font_7x10, White);
+	ssd1306_UpdateScreen();
+	ssd1306_SetCursor(20, 40);
+	ssd1306_WriteString("A = Accept", Font_7x10, White);
+	ssd1306_SetCursor(20, 50);
+	ssd1306_WriteString("B = Reset", Font_7x10, White);
+	ssd1306_UpdateScreen();
+}
 
 int main(void)
 {
@@ -101,7 +134,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+   HAL_Init();
 
   /* USER CODE BEGIN Init */
 
@@ -119,25 +152,103 @@ int main(void)
   MX_USART2_UART_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  ring_buffer_init(&ring_buffer_uart_rx, rx_buffer, 16); // funcion de inicialiczacion
 
-  HAL_UART_Receive_IT(&huart2, &rx_data, 1);// cada que llegue un dato lo agragamos a un buffer circular
+  ring_buffer_init(&ring_buffer_keyboard, rx_buffer, 5); // buffer initialization
+  //HAL_UART_Receive_IT(&huart2, &rx_data, 1);// cada que llegue un dato lo agragamos a un buffer circular
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
   keyboard_init(); // Initialize the keypad functionality
+  display_init(); // Starting screen
+
 
   while (1)
   {
-	  if (key_event != 0xFF)// check if there is a event from the EXTi callback
-	  {
-		  uint16_t key_pressed = keyboard_handler(key_event); // call the keypad handler
-		  printf("Key pressed: %x\r\n", key_pressed); // print the key pressed
-		  key_event = 0xFF; // clean the event
-		  keyboard_init();
-	  }
+
+	if (key_event != 0xFF)// check if there is a event from the EXTi callback
+	{
+
+		uint8_t key_pressed = keyboard_handler(key_event); // call the keypad handler
+		printf("Key pressed: %x\r\n", key_pressed);  // print the key pressed
+		rx_data = key_pressed;
+
+		ring_buffer_put(&ring_buffer_keyboard, rx_data);/*This function adds a data in the ring buffer*/
+
+		if(ring_buffer_size(&ring_buffer_keyboard)<=4)
+		{
+			/* print the key on the screen */
+			char buffer[10]; // Buffer to store the number text string
+			snprintf(buffer, sizeof(buffer), "%u", rx_data); // Convert hexadecimal number to a string in decimal format
+			ssd1306_SetCursor(m , 20);
+			ssd1306_WriteString(buffer, Font_11x18, White);
+			ssd1306_UpdateScreen();
+			HAL_Delay(500);
+			ssd1306_SetCursor(m , 20);
+			ssd1306_WriteString("*", Font_11x18, White);
+			ssd1306_UpdateScreen();
+			m += 10;
+		}
+
+		HAL_Delay(600);
+		key_event = 0xFF; // clean the event
+		keyboard_init();
+
+		if(rx_data == 0x0B) // Press the "B" key to restart the sequence
+		{
+			m = 30; // initializing the the index where the key starts
+			reset_all();
+			display_init();
+		}
+		else if (rx_buffer[4] == 0x0A) // Press the "A" key to continue
+			{
+				m = 30;
+				int numero = 0;
+				for (int i = 0; i < 4; i++)
+				{
+					numero = numero * 10 + (rx_buffer[i]-0); // hex to dec
+				}
+				printf("La clave es: %u\r\n", numero);
+
+				if (numero == 1997) // year of birth
+				{
+					ssd1306_Init();
+					ssd1306_SetCursor(20, 20);
+					ssd1306_WriteString("PASS", Font_16x26, White);
+					ssd1306_UpdateScreen();
+					HAL_Delay(800);
+					reset_all();
+					display_init();
+				}
+				else if (numero != 1997) // year of birth
+				{
+					ssd1306_Init();
+					ssd1306_SetCursor(20, 20);
+					ssd1306_WriteString("FAIL", Font_16x26, White);
+					ssd1306_UpdateScreen();
+					HAL_Delay(800);
+					reset_all();
+					display_init();
+				}
+			}
+		//If any key "A" or "b" is pressed after entering the password, an error occurs
+		else if ((rx_buffer[4] != 0x0A || rx_buffer[4] != 0x0B ) && ring_buffer_size(&ring_buffer_keyboard)==5)
+		{
+			m = 30;
+			ssd1306_Init();
+			ssd1306_SetCursor(20, 20);
+			ssd1306_WriteString("ERROR", Font_16x26, White);
+			ssd1306_UpdateScreen();
+			HAL_Delay(800);
+			reset_all();
+			display_init();
+		}
+
+		rx_buffer[4] = 0; // cleaning position 5
+  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

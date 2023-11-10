@@ -2,7 +2,7 @@
 
 
 /*** Debounce the key press (remove noise in the key) ***/
-#define KEY_DEBOUNCE_MS 500 /*!> Minimum time required for since last press */
+#define KEY_DEBOUNCE_MS 100 /*!> Minimum time required for since last press */
 
 /**
  * @brief This functions initialize the functionality of the keypad
